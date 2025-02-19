@@ -32,10 +32,10 @@
    ::mf/private true}
   [{:keys [filters]}]
   (let [file-id   (mf/use-ctx ctx/current-file-id)
-
-        libraries (mf/deref refs/libraries)
-        libraries (mf/with-memo [libraries file-id]
-                    (->> (vals libraries)
+        files     (mf/deref refs/files)
+        libraries (mf/with-memo [files file-id]
+                    (->> (refs/select-libraries files file-id)
+                         (vals)
                          (remove :is-indirect)
                          (remove #(= file-id (:id %)))
                          (map (fn [file]
@@ -73,7 +73,7 @@
 (mf/defc assets-toolbox
   {::mf/wrap [mf/memo]
    ::mf/wrap-props false}
-  [{:keys [size]}]
+  [{:keys [size file-id]}]
   (let [components-v2  (mf/use-ctx ctx/components-v2)
         read-only?     (mf/use-ctx ctx/workspace-read-only?)
         filters*       (mf/use-state
@@ -125,8 +125,9 @@
 
         show-libraries-dialog
         (mf/use-fn
+         (mf/deps file-id)
          (fn []
-           (modal/show! :libraries-dialog {})
+           (modal/show! :libraries-dialog {:file-id file-id})
            (modal/allow-click-outside!)))
 
         on-open-menu
