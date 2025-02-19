@@ -5,6 +5,7 @@
 ;; Copyright (c) KALEIDOS INC
 
 (ns app.common.logic.libraries
+  ;; #?(:cljs (:require-macros [app.common.logic.libraries]))
   (:require
    [app.common.data :as d]
    [app.common.data.macros :as dm]
@@ -34,6 +35,22 @@
 
 ;; Change this to :info :debug or :trace to debug this module, or :warn to reset to default
 (log/set-level! :warn)
+
+(def log-ids #{})
+
+(defn enabled-ids?
+  [ids container]
+  (let [enabled-id?
+        (fn [id]
+          (let [parent-ids (set (cfh/get-parent-ids (:objects container) id))]
+            (seq (set/intersection log-ids parent-ids))))]
+    (or (empty? log-ids)
+        (some enabled-id? ids))))
+
+(defmacro cond-log
+  [level ids container & params]
+  `(when (enabled-ids? ~ids ~container)
+     (log/log ~level ~@params)))
 
 (declare generate-sync-container)
 (declare generate-sync-shape)
@@ -736,9 +753,10 @@
 
 (defn- generate-sync-shape-direct-recursive
   [changes container shape-inst component library file libraries shape-main root-inst root-main reset? initial-root? redirect-shaperef components-v2]
-  (log/debug :msg "Sync shape direct recursive"
-             :shape-inst (str (:name shape-inst) " " (pretty-uuid (:id shape-inst)))
-             :component (:name component))
+  (cond-log :debug [(:id shape-inst)] container
+            :msg "Sync shape direct recursive"
+            :shape-inst (str (:name shape-inst) " " (pretty-uuid (:id shape-inst)))
+            :component (:name component))
 
   (if (nil? shape-main)
     ;; This should not occur, but protect against it in any case
