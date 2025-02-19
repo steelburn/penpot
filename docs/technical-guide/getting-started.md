@@ -280,6 +280,43 @@ Postgres database and another one for the assets uploaded by your users (images 
 clips). There may be more volumes if you enable other features, as explained in the file
 itself.
 
+### Configure the proxy
+
+Your host configuration needs to make a proxy to http://localhost:9001.
+
+#### Example with NGINX
+
+```bash
+server {
+  listen 80;
+  server_name penpot.mycompany.com;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl;
+  server_name penpot.mycompany.com;
+
+  # Logs: Configure your logs following the best practices inside your company
+  access_log /path/to/penpot.access.log;
+  error_log /path/to/penpot.error.log;
+
+  # TLS: Configure your TLS following the best practices inside your company
+  ssl_certificate /path/to/fullchain;
+  ssl_certificate_key /path/to/privkey;
+
+  # Proxy pass
+  location / {
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Scheme $scheme;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_redirect off;
+    proxy_pass http://localhost:9001/;
+  }
+}
+```
 
 ## Install with Kubernetes
 
