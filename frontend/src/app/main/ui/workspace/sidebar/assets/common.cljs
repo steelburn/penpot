@@ -154,14 +154,17 @@
 
         title
         (mf/html
-         [:span {:class (stl/css :title-name)}
+         [:span {:class (stl/css-case :title-name true
+                                      :title-tokens (= section :tokens)
+                                      :title-tokens-active (and (= section :tokens) (< 0 assets-count)))}
           [:span {:class (stl/css :section-icon)}
            [:> icon* {:icon-id (or icon (section-icon section)) :size "s"}]]
           [:span {:class (stl/css :section-name)}
            title]
 
-          [:span {:class (stl/css :num-assets)}
-           assets-count]])]
+          (when (and (< 0 assets-count) (= section :tokens))
+            [:span {:class (stl/css :num-assets)}
+             assets-count])])]
 
     [:div {:class (stl/css-case :asset-section true
                                 :opened (and (< 0 assets-count)
