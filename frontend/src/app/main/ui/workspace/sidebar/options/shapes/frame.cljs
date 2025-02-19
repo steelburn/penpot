@@ -71,8 +71,6 @@
         variants?                 (features/use-feature "variants/v1")
         is-variant?               (when variants? (:is-variant-container shape))]
 
-    (if is-variant?
-      [:> variant-menu* {:shapes [shape]}]
       [:*
        [:& layer-menu {:ids ids
                        :type shape-type
@@ -83,6 +81,9 @@
                            :shape shape}]
 
        [:& component-menu {:shapes [shape]}]
+
+       (when is-variant?
+         [:> variant-menu* {:shapes [shape]}])
 
        [:& layout-container-menu
         {:type shape-type
@@ -125,4 +126,4 @@
        [:> shadow-menu* {:ids ids :values (get shape :shadow)}]
        [:& blur-menu {:ids ids
                       :values (select-keys shape [:blur])}]
-       [:& frame-grid {:shape shape}]])))
+       [:& frame-grid {:shape shape}]]))

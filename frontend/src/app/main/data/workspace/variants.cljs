@@ -146,7 +146,7 @@
             objects      (dsh/lookup-page-objects state file-id page-id)
             main         (get objects main-instance-id)
             main-id      (:id main)
-            undo-id      (js/Symbol)]
+            undo-id      (js/Symbol)            ]
 
         (rx/of
          (dwu/start-undo-transaction undo-id)

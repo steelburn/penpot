@@ -211,8 +211,13 @@
   [ids]
   (ptk/reify ::remove-shape-layout
     ptk/WatchEvent
-    (watch [_ _ _]
-      (let [undo-id (js/Symbol)]
+    (watch [_ state _]
+      (let [objects   (dsh/lookup-page-objects state)
+            ids    (->> ids
+                        (map #(get objects %))
+                        (remove ctc/is-variant-container?)
+                        (map :id))
+            undo-id (js/Symbol)]
         (rx/of
          (dwu/start-undo-transaction undo-id)
          (dwsh/update-shapes ids #(apply dissoc % layout-keys))
@@ -234,11 +239,12 @@
             selected-shapes  (map (d/getf objects) selected)
             single?          (= (count selected-shapes) 1)
             is-frame?        (= :frame (:type (first selected-shapes)))
+            is-variant-cont? (ctc/is-variant-container? (first selected-shapes))
             undo-id          (js/Symbol)]
 
         (rx/of
          (dwu/start-undo-transaction undo-id)
-         (if (and single? is-frame?)
+         (if (and single? is-frame? (not is-variant-cont?))
            (create-layout-from-id (first selected) type :from-frame? true)
            (create-layout-from-selection type))
          (dwu/commit-undo-transaction undo-id))))))
