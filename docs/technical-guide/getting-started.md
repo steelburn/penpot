@@ -318,6 +318,18 @@ server {
 }
 ```
 
+#### Example with CADDY SERVER
+
+```bash
+penpot.mycompany.com {
+        reverse_proxy :9001
+        tls /path/to/fullchain.pem /path/to/privkey.pem
+        log {
+            output file /path/to/penpot.log
+        }
+}
+```
+
 ## Install with Kubernetes
 
 This section details everything you need to know to get Penpot up and running in
