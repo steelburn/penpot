@@ -13,7 +13,8 @@ on:
           - all
   push:
     branches:
-      - github-actions-bundle-build 
+      - github-actions-bundle
+
 env:
   ZIP_MODE: ${{ github.event.inputs.zip_mode }}
 
@@ -41,62 +42,118 @@ jobs:
       - name: Run manage.sh build-bundle from host
         run: ./manage.sh build-bundle
 
-      - name: Create README and zip bundles
+      - name: Create zip bundles
         run: |
-          echo "📦 Generating bundle documentation and packaging..."
-
-          mkdir -p bundles
-
-          echo "# Penpot Frontend Bundle" > frontend/README.md
-          echo "This bundle contains the compiled frontend of Penpot. To deploy, serve it via a static file server like NGINX." >> frontend/README.md
-
-          echo "# Penpot Backend Bundle" > backend/README.md
-          echo "This bundle contains the backend services of Penpot. Deploy in a containerized or server environment supporting Clojure/Java." >> backend/README.md
-
-          echo "# Penpot Exporter Bundle" > exporter/README.md
-          echo "This bundle includes Penpot's export service. Use alongside backend for complete document conversion features." >> exporter/README.md
+          echo "📦 Packaging Penpot bundles..."
+          mkdir -p zips temp
 
           if [[ "${ZIP_MODE}" == "all" ]]; then
             echo "Creating unified penpot-all-bundles.zip"
-            cp -r frontend backend exporter bundles/
-            echo "# Penpot Bundles" > bundles/README.md
-            echo "" >> bundles/README.md
-            echo "This package contains all Penpot components: frontend, backend, and exporter." >> bundles/README.md
-            echo "Refer to each subdirectory for specific deployment instructions." >> bundles/README.md
-            cd bundles
-            mkdir all-in-one
-            mv frontend backend exporter README.md all-in-one/
-            zip -r penpot-all-bundles.zip all-in-one
+            mkdir -p temp/penpot-all/penpot-frontend temp/penpot-all/penpot-backend temp/penpot-all/penpot-exporter
+            cp -r bundles/frontend/* temp/penpot-all/penpot-frontend/
+            cp -r bundles/backend/* temp/penpot-all/penpot-backend/
+            cp -r bundles/exporter/* temp/penpot-all/penpot-exporter/
+            cd temp
+            zip -r ../zips/penpot-all-bundles.zip penpot-all
           else
             echo "Creating individual zip files"
-            zip -r frontend.zip frontend
-            zip -r backend.zip backend
-            zip -r exporter.zip exporter
+            for component in frontend backend exporter; do
+              name="penpot-${component}"
+              mkdir -p temp/${name}
+              cp -r bundles/${component}/* temp/${name}/
+            done
+            cd temp
+            for name in penpot-frontend penpot-backend penpot-exporter; do
+              zip -r ../zips/${name}.zip ${name}
+            done
           fi
+
       - name: Upload unified bundle
-        if: env.ZIP_MODE == 'all'
+        if: ${{ github.event.inputs.zip_mode == 'all' }}
         uses: actions/upload-artifact@v4
         with:
           name: penpot-all-bundles
-          path: bundles/penpot-all-bundles.zip
+          path: zips/penpot-all-bundles.zip
 
       - name: Upload frontend bundle
-        if: env.ZIP_MODE != 'all'
+        if: ${{ github.event.inputs.zip_mode != 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-bundle
-          path: frontend.zip
+          name: penpot-frontend
+          path: zips/penpot-frontend.zip
 
       - name: Upload backend bundle
-        if: env.ZIP_MODE != 'all'
+        if: ${{ github.event.inputs.zip_mode != 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: backend-bundle
-          path: backend.zip
+          name: penpot-backend
+          path: zips/penpot-backend.zip
 
       - name: Upload exporter bundle
-        if: env.ZIP_MODE != 'all'
+        if: ${{ github.event.inputs.zip_mode != 'all' }}
         uses: actions/upload-artifact@v4
         with:
-          name: exporter-bundle
-          path: exporter.zip
+          name: penpot-exporter
+          path: zips/penpot-exporter.zip
+
+      # S3 UPLOAD - INDIVIDUAL ZIPs
+      - name: Upload individual ZIPs to S3
+        if: ${{ github.event.inputs.zip_mode != 'all' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          FECHA=$(date +%F)
+          MODO="individual"
+          for file in penpot-frontend.zip penpot-backend.zip penpot-exporter.zip; do
+            echo "📤 Subiendo $file a s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/$file"
+            aws s3 cp zips/$file s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/$file
+          done
+
+      # S3 UPLOAD - ZIP UNIFICADO
+      - name: Upload unified ZIP to S3
+        if: ${{ github.event.inputs.zip_mode == 'all' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          FECHA=$(date +%F)
+          MODO="all"
+          echo "📤 Subiendo penpot-all-bundles.zip a s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/penpot-all-bundles.zip"
+          aws s3 cp zips/penpot-all-bundles.zip s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/penpot-all-bundles.zip
+
+      # PRESIGNED LINKS - INDIVIDUAL ZIPs
+      - name: Generate presigned URLs (24h) for individual ZIPs
+        if: ${{ github.event.inputs.zip_mode != 'all' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          FECHA=$(date +%F)
+          MODO="individual"
+          echo "📥 Enlaces de descarga válidos por 24h:"
+          for file in penpot-frontend.zip penpot-backend.zip penpot-exporter.zip; do
+            url=$(aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/$file --expires-in 86400)
+            echo "$file: $url"
+          done
+
+      # PRESIGNED LINK - UNIFICADO
+      - name: Generate presigned URL for unified ZIP (24h)
+        if: ${{ github.event.inputs.zip_mode == 'all' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+        run: |
+          FECHA=$(date +%F)
+          MODO="all"
+          echo "📥 Enlace de descarga válido por 24h:"
+          aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/$MODO/penpot-all-bundles.zip --expires-in 86400
+
+      - name: Print artifact summary URL
+        run: |
+          echo "📦 Artifacts disponibles en:"
+          echo "🔗 https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
