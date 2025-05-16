@@ -12,7 +12,7 @@ on:
           - individual
           - all
   schedule:
-    - cron: '0 * * * *'  # Ejecuta cada hora
+    - cron: '*/5 * * * *'
 
 jobs:
   build-bundles:
