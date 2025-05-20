@@ -12,7 +12,18 @@ on:
          - individual
          - all
  schedule:
-   - cron: '*/5 * * * *'
+   - cron: '30 7 * * 1-5'
+   - cron: '30 8 * * 1-5'
+   - cron: '30 9 * * 1-5'
+   - cron: '30 10 * * 1-5'
+   - cron: '30 11 * * 1-5'
+   - cron: '30 12 * * 1-5'
+   - cron: '30 13 * * 1-5'
+   - cron: '30 14 * * 1-5'
+   - cron: '30 15 * * 1-5'
+   - cron: '30 16 * * 1-5'
+   - cron: '30 17 * * 1-5'
+   - cron: '30 18 * * 1-5'
 
 jobs:
  build-bundles:
