@@ -12,7 +12,6 @@ on:
           - individual
           - all
   schedule:
-    # Run every hour from 7:30 to 18:30 UTC, Monday to Friday
     - cron: '30 7 * * 1-5'
     - cron: '30 8 * * 1-5'
     - cron: '30 9 * * 1-5'
@@ -35,7 +34,7 @@ jobs:
       commit_count: ${{ steps.check.outputs.commit_count }}
 
     steps:
-      # Initialize Git and fetch remote history for comparison
+      # Prepare a local git repo and fetch origin/develop
       - name: Prepare repository with remote
         run: |
           git init
@@ -43,7 +42,7 @@ jobs:
           git fetch origin develop
           git checkout origin/develop
 
-      # Compare HEAD with origin/develop to detect new commits
+      # Compare current HEAD with origin/develop to detect new commits
       - name: Check if HEAD is behind origin/develop
         id: check
         run: |
@@ -62,8 +61,8 @@ jobs:
             echo "commit_count=$COUNT" >> $GITHUB_OUTPUT
           fi
 
-      # Log a message if no new commits are found
-      - name: "Log: No new commits found"
+      # Log message when no new commits are found
+      - name: "Log - No new commits found"
         if: ${{ steps.check.outputs.skip == 'true' }}
         run: echo "⏹️ No new commits in develop. Skipping build-bundles job."
 
@@ -74,28 +73,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Export number of new commits to env
+      # Export commit count for use in later steps
       - name: Export commit count to env
         run: echo "COMMIT_COUNT=${{ needs.check-develop.outputs.commit_count }}" >> $GITHUB_ENV
 
-      # Checkout the develop branch
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: develop
           fetch-depth: 0
 
-      # Set ZIP_MODE from input or default to 'individual'
+      # Read zip mode input or fallback to 'individual'
       - name: Determine ZIP_MODE
         id: mode
-        run: |
-          echo "ZIP_MODE=${{ github.event.inputs.zip_mode || 'individual' }}" >> $GITHUB_ENV
+        run: echo "ZIP_MODE=${{ github.event.inputs.zip_mode || 'individual' }}" >> $GITHUB_ENV
 
-      # Set up Docker Buildx for multi-arch builds
+      # Set up Docker Buildx for multi-arch build
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build CI builder image for Penpot
+      # Build CI builder image
       - name: Build Penpot CI Builder Image
         run: |
           docker build \
@@ -105,18 +102,18 @@ jobs:
             -f docker/devenv/Dockerfile \
             docker/devenv
 
-      # Run the bundle build script
+      # Build the frontend, backend, and exporter bundles
       - name: Run manage.sh build-bundle from host
         run: ./manage.sh build-bundle
 
-      # Package the bundles into zip files
+      # Zip the bundles
       - name: Create zip bundles
         run: |
           echo "📦 Packaging Penpot bundles..."
           mkdir -p zips temp
 
           if [[ "${ZIP_MODE}" == "all" ]]; then
-            mkdir -p temp/penpot-all/penpot-frontend temp/penpot-all/penpot-backend temp/penpot-all/penpot-exporter
+            mkdir -p temp/penpot-all/{penpot-frontend,penpot-backend,penpot-exporter}
             cp -r bundles/frontend/* temp/penpot-all/penpot-frontend/
             cp -r bundles/backend/* temp/penpot-all/penpot-backend/
             cp -r bundles/exporter/* temp/penpot-all/penpot-exporter/
@@ -134,7 +131,7 @@ jobs:
             done
           fi
 
-      # Upload artifacts conditionally based on ZIP_MODE
+      # Upload zipped artifacts to GitHub
       - name: Upload unified bundle
         if: ${{ env.ZIP_MODE == 'all' }}
         uses: actions/upload-artifact@v4
@@ -163,7 +160,7 @@ jobs:
           name: penpot-exporter
           path: zips/penpot-exporter.zip
 
-      # Upload zip files to S3 bucket
+      # Upload the bundles to S3 and generate presigned download links
       - name: Upload bundles to S3
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -180,8 +177,8 @@ jobs:
             done
           fi
 
-      # Generate 24h presigned download links
       - name: Generate presigned URLs
+        id: presign
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -189,25 +186,29 @@ jobs:
         run: |
           FECHA=$(date +%F)
           MODO="${ZIP_MODE}"
-          echo "📥 Download links valid for 24h:"
+          echo "" > urls.txt
+          echo "📥 Download links valid for 24h:" >> urls.txt
           if [[ "$MODO" == "all" ]]; then
-            aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/all/penpot-all-bundles.zip --expires-in 86400
+            LINK=$(aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/all/penpot-all-bundles.zip --expires-in 86400)
+            echo "- [penpot-all-bundles.zip]($LINK)" >> urls.txt
           else
             for file in penpot-frontend.zip penpot-backend.zip penpot-exporter.zip; do
-              aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/individual/$file --expires-in 86400
+              LINK=$(aws s3 presign s3://${{ secrets.S3_DEV_BUCKET }}/$FECHA/individual/$file --expires-in 86400)
+              echo "- [$file]($LINK)" >> urls.txt
             done
           fi
 
-      # Notify only if new commits were found
+      # Notify Mattermost with bundle info and presigned URLs
       - name: Notify Mattermost (only if new commits)
         if: ${{ env.COMMIT_COUNT != '0' }}
         run: |
           FECHA=$(date +%F)
+          LINKS=$(cat urls.txt | sed ':a;N;$!ba;s/\n/\\n/g')
           curl -X POST -H 'Content-Type: application/json' -d "{
-            \"text\": \"📦 *Penpot bundle generated*\n🔄 Detected *${COMMIT_COUNT}* new commit(s) on \`develop\`\n👤 Notified: @francis\n🔗 [View artifacts](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\"
+            \"text\": \"📦 *Penpot bundle generated*\n🔄 Detected *${COMMIT_COUNT}* new commit(s) on \`develop\`\n👤 Notified: @francis\n${LINKS}\n🔗 [View GitHub run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})\"
           }" ${{ secrets.MATTERMOST_WEBHOOK }}
 
-      # Print GitHub artifact summary URL
+      # Print summary of the artifacts
       - name: Print artifact summary URL
         run: |
           echo "📦 Artifacts available at:"
